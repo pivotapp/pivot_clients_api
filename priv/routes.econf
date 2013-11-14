@@ -1,0 +1,8 @@
+{'_', [
+  {"/assignments", pivot_clients_api_assignments_handler, []},
+  {"/events", pivot_clients_api_events_handler, []},
+
+  {"/rewards", pivot_clients_api_rewards_handler, []},
+  {"/bandits", pivot_clients_api_bandits_handler, []},
+  {"/selections", pivot_clients_api_selections_handler, []}
+]}.
