@@ -161,7 +161,5 @@ map_get(Key, Obj, Default) ->
       Val
   end.
 
-%% TODO do we need to loop back around when we hit a certain size? With the current
-%% implementation it will increase indefinitely...
 inc_bin(Bin) ->
-  binary:encode_unsigned(binary:decode_unsigned(Bin) + 1).
+  <<(binary:decode_unsigned(Bin) + 1):32>>.
