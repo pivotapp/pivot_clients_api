@@ -10,7 +10,7 @@
 -include("pivot_clients_api.hrl").
 
 -define(SELECTIONS_BUCKET(Env), <<"selections:", Env/binary>>).
--define(SELECTIONS_KEY(App, Version), <<App/binary, ":", Version/binary>>).
+-define(SELECTIONS_KEY(App, Version), ?KEY_HASH(App, Version)).
 
 get(#pivot_req{env = Env, app = App, version = Version}) ->
   case riakou:do(fetch_type, [{<<"map">>, ?SELECTIONS_BUCKET(Env)}, ?SELECTIONS_KEY(App, Version)]) of

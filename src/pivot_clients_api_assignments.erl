@@ -10,7 +10,7 @@
 -include("pivot_clients_api.hrl").
 
 -define(ASSIGNMENTS_BUCKET(Env), <<"assignments:", Env/binary>>).
--define(ASSIGNMENTS_KEY(App, UserID, Version), <<App/binary, ":", UserID/binary, ":", Version/binary>>).
+-define(ASSIGNMENTS_KEY(App, UserID, Version), ?KEY_HASH(App, UserID, Version)).
 
 get(#pivot_req{env = Env, app = App, version = Version, user = UserID}) ->
   case riakou:do(fetch_type, [{<<"map">>, ?ASSIGNMENTS_BUCKET(Env)}, ?ASSIGNMENTS_KEY(App, UserID, Version)]) of

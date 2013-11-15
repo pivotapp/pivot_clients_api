@@ -10,7 +10,7 @@
 -include("pivot_clients_api.hrl").
 
 -define(STATE_BUCKET(Env), <<"state:", Env/binary>>).
--define(STATE_KEY(App, Version, Bandit, Arm), <<App/binary, ":", Version/binary, ":", Bandit/binary, ":", Arm/binary>>).
+-define(STATE_KEY(App, Version, Bandit, Arm), ?KEY_HASH(App, Version, Bandit, Arm)).
 
 -define(BUCKET_SIZE, 50).
 -define(BUCKET_COUNT, 20).
@@ -77,7 +77,8 @@ maybe_update(Bucket, Key, _, Obj) ->
 current(Obj) ->
   case map_get({<<"c">>, register}, Obj) of
     undefined ->
-      {<<0>>, add_event_set(<<0>>, Obj)};
+      C = init_bin(),
+      {C, add_event_set(C, Obj)};
     C ->
       {C, Obj}
   end.
@@ -160,6 +161,9 @@ map_get(Key, Obj, Default) ->
     {ok, Val} ->
       Val
   end.
+
+init_bin() ->
+  inc_bin(<<0>>).
 
 inc_bin(Bin) ->
   <<(binary:decode_unsigned(Bin) + 1):32>>.

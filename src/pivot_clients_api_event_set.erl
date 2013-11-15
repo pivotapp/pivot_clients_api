@@ -12,7 +12,7 @@
 -include("pivot_clients_api.hrl").
 
 -define(STATE_BUCKET(Env), <<"eset:", Env/binary>>).
--define(STATE_KEY(App, Version, Bandit, Arm, EventSet), <<App/binary, ":", Version/binary, ":", Bandit/binary, ":", Arm/binary, ":", EventSet/binary>>).
+-define(STATE_KEY(App, Version, Bandit, Arm, EventSet), ?KEY_HASH(App, Version, Bandit, Arm, EventSet)).
 
 add(#pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm, event_set = Set, reward = Reward, user = UserID}) ->
   Bucket = {<<"set">>, ?STATE_BUCKET(Env)},
