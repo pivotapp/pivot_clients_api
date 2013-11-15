@@ -12,8 +12,8 @@
 
 -define(LOG(NS, Fun, Time, App, ReqID), io:format("measure#~p.~p=~pµs app=~s request_id=~s~n", [NS, Fun, Time, App, ReqID])).
 
--undef(LOG).
--define(LOG(NS, Fun, Time, App, ReqID), noop).
+% -undef(LOG).
+% -define(LOG(NS, Fun, Time, App, ReqID), noop).
 
 p(Funs) ->
   rpc:pmap({?MODULE, do_p}, [], Funs).
@@ -36,7 +36,14 @@ s(_Funs) ->
   ok.
 
 new(Props) ->
-  new(Props, #pivot_req{}).
+  % new(Props, #pivot_req{}).
+  new(Props, #pivot_req{
+    id = <<"test-request-id">>,
+    env = <<"production">>,
+    app = <<"app">>,
+    version = <<"*">>,
+    user = <<"user">>
+  }).
 
 new([], Req) ->
   Req;
@@ -61,7 +68,13 @@ new([{arms, V}|Props], Req) ->
 new([{reward, V}|Props], Req) ->
   new(Props, Req#pivot_req{reward = V});
 new([{selections, V}|Props], Req) ->
-  new(Props, Req#pivot_req{selections = V}).
+  new(Props, Req#pivot_req{selections = V});
+new([{event_set, V}|Props], Req) ->
+  new(Props, Req#pivot_req{event_set = V});
+new([{count, V}|Props], Req) ->
+  new(Props, Req#pivot_req{count = V});
+new([{score, V}|Props], Req) ->
+  new(Props, Req#pivot_req{score = V}).
 
 do(NS, Fun, Req = #pivot_req{id = _ReqID, app = _App}) ->
   {_Time, Res} = timer:tc(mod(NS), Fun, [Req]),
@@ -81,6 +94,8 @@ mod(events) ->
   pivot_clients_api_events;
 mod(assignments) ->
   pivot_clients_api_assignments;
+mod(event_set) ->
+  pivot_clients_api_event_set;
 mod(arm_state) ->
   pivot_clients_api_arm_state;
 mod(bandit_state) ->

@@ -21,7 +21,10 @@
   arms,
   reward,
   selections,
-  explore = true
+  explore = true,
+  event_set,
+  count,
+  score
 }).
 
 -define(SUPER_BANDIT, <<"$$SUPER_BANDIT$$">>).

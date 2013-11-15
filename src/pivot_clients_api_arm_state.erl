@@ -12,94 +12,156 @@
 -define(STATE_BUCKET(Env), <<"state:", Env/binary>>).
 -define(STATE_KEY(App, Version, Bandit, Arm), <<App/binary, ":", Version/binary, ":", Bandit/binary, ":", Arm/binary>>).
 
--define(BUCKET_SIZE, 100).
--define(BUCKET_COUNT, 10).
+-define(BUCKET_SIZE, 50).
+-define(BUCKET_COUNT, 20).
 
-get(#pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm}) ->
+get(Req = #pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm}) ->
   case riakou:do(fetch_type, [{<<"map">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, Bandit, Arm)]) of
     {ok, Obj} ->
-      State = riakc_map:value(Obj),
-      Count = fast_key:get({<<"n">>, register}, State, 0),
-      Score = fast_key:get({<<"a">>, register}, State, 0.0),
-      Stage = fast_key:get({<<"s">>, map}, State, []),
-      {ok, Arm, compute_score(Count, Score, lists:keysort(1, Stage))};
+      Count = binary_to_integer(map_get({<<"n">>, register}, Obj, <<"0">>)),
+      Score = binary_to_float(map_get({<<"s">>, register}, Obj, <<"0.0">>)),
+      EventSet = map_get({<<"e">>, set}, Obj, []),
+      %% NOTE
+      %% This is not sorting because the riakc_set is an ordset. This is an implementation
+      %% detail and should be considered when updating the client library.
+      case compute_score(Count, Score, EventSet, Req) of
+        {ok, ArmState} ->
+          {ok, Arm, ArmState};
+        Error ->
+          Error
+      end;
     {error, {notfound, _}} ->
       {ok, Arm, {0, 0.0}};
     Error ->
       Error
   end.
 
-add(Req = #pivot_req{env = Env, app = App, version = Version, user = UserID, bandit = Bandit, arm = Arm, reward = Reward}) ->
-  Fun = fun(ArmMap) ->
-    %% find the current 'bucket'
-    {ArmBucket, ArmMap2} = current(ArmMap),
-    riakc_map:update({<<"s">>, map}, fun(StageMap) ->
-      riakc_map:update({ArmBucket, set}, fun(StageBucket) ->
-        riakc_set:add_element(term_to_binary({now(), UserID, Reward}), StageBucket)
-      end, StageMap)
-    end, ArmMap2)
-  end,
-  BucketAndType = {<<"map">>, ?STATE_BUCKET(Env)},
-  Key = ?STATE_KEY(App, Version, Bandit, Arm),
-  Options = [create],
-  Args = [Fun, BucketAndType, Key, Options],
-
-  case riakou:do(modify_type, Args) of
-    ok ->
-      pivot_client:do_async(selections, renew, Req);
+compute_score(Count, Score, [], _Req) ->
+  {ok, {Count, Score}};
+compute_score(Count, Score, [Event|EventSet], Req) ->
+  case pivot_client:do(event_set, get, Req#pivot_req{event_set = Event, count = Count, score = Score}) of
+    {ok, {NewCount, NewScore}} ->
+      compute_score(NewCount, NewScore, EventSet, Req);
+    %% We'll get this when someone cleaned up an event set but we didn't know about it
+    {error, notfound} ->
+      compute_score(Count, Score, EventSet, Req);
     Error ->
       Error
   end.
 
-current(ArmMap) ->
-  case riakc_map:find({<<"c">>, register}, ArmMap) of
-    {ok, CurrentArmBucket} ->
-      SelectedArmBucket = case riakc_map:find({<<"s">>, map}, ArmMap) of
-        {ok, StagingMap} ->
-          case fast_key:get({CurrentArmBucket, set}, StagingMap) of
-            undefined ->
-              CurrentArmBucket;
-            StageBucket ->
-              case length(StageBucket) of
-                Size when Size > ?BUCKET_SIZE ->
-                  <<Bit>> = CurrentArmBucket,
-                  <<(Bit + 1)>>;
-                _ ->
-                  CurrentArmBucket
-              end
-          end;
-        _ ->
-          CurrentArmBucket
-      end,
-      case SelectedArmBucket of
-        CurrentArmBucket ->
-          {SelectedArmBucket, ArmMap};
-        _ ->
-          NewArmMap = riakc_map:update({<<"c">>, register}, fun(Reg) ->
-            riakc_register:set(SelectedArmBucket, Reg)
-          end, ArmMap),
-          {SelectedArmBucket, NewArmMap}
+add(Req = #pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm}) ->
+  Bucket = {<<"map">>, ?STATE_BUCKET(Env)},
+  Key = ?STATE_KEY(App, Version, Bandit, Arm),
+  case get_or_create(Bucket, Key) of
+    {ok, Obj} ->
+      {Current, Obj2} = current(Obj),
+      EReq = Req#pivot_req{event_set = Current},
+
+      case pivot_client:do(event_set, add, EReq) of
+        {ok, Size} when Size > ?BUCKET_SIZE ->
+          cleanup(Bucket, Key, Obj, EReq);
+        {ok, _} ->
+          maybe_update(Bucket, Key, Obj, Obj2);
+        Error ->
+          Error
       end;
-    _ ->
-      NewArmBucket = <<0>>,
-      NewArmMap = riakc_map:update({<<"c">>, register}, fun(Reg) ->
-        riakc_register:set(NewArmBucket, Reg)
-      end, ArmMap),
-      {NewArmBucket, NewArmMap}
+    Error ->
+      Error
   end.
 
-compute_score(Count, Score, []) ->
-  {Count, Score};
-compute_score(Count, Score, [{_, Events}|Stage]) ->
-  SortedEvents = lists:keysort(1, [binary_to_term(Event) || Event <- Events]),
-  {NewCount, NewScore} = chain(Count, Score, SortedEvents),
-  compute_score(NewCount, NewScore, Stage).
+maybe_update(_, _, Obj, Obj) ->
+  ok;
+maybe_update(Bucket, Key, _, Obj) ->
+  riakou:do(update_type, [Bucket, Key, riakc_map:to_op(Obj), [create]]).
 
-chain(Count, Score, []) ->
-  {Count, Score};
-chain(Count, Score, [{T, U, Reward}|Events]) when is_binary(Reward) ->
-  chain(Count, Score, [{T, U, binary_to_float(Reward)}|Events]);
-chain(Count, Score, [{_, _, Reward}|Events]) ->
-  N = Count + 1,
-  NewScore = ((N - 1.0) / N) * Score + (1.0 / N) * Reward,
-  chain(N, NewScore, Events).
+current(Obj) ->
+  case map_get({<<"c">>, register}, Obj) of
+    undefined ->
+      {<<0>>, add_event_set(<<0>>, Obj)};
+    C ->
+      {C, Obj}
+  end.
+
+cleanup(Bucket, Key, Obj, Req = #pivot_req{event_set = Current}) ->
+  NewCurrent = inc_bin(Current),
+  Obj2 = add_event_set(NewCurrent, Obj),
+  EventSet = map_get({<<"e">>, set}, Obj2),
+  Length = length(EventSet),
+
+  {ok, Obj3, SetsToDelete} = case Length > ?BUCKET_COUNT of
+    true ->
+      Count = binary_to_integer(map_get({<<"n">>, register}, Obj, <<"0">>)),
+      Score = binary_to_float(map_get({<<"s">>, register}, Obj, <<"0.0">>)),
+      %% NOTE
+      %% This is not sorting because the riakc_set is an ordset. This is an implementation
+      %% detail and should be considered when updating the client library.
+      case compute_score_and_cleanup(Count, Score, EventSet, Req, Obj2, Length, []) of
+        {ok, _, _} = Res ->
+          Res;
+        _ ->
+          %% We're just going to ignore errors and have someone else try to clean up
+          {ok, Obj2, []}
+      end;
+    _ ->
+      {ok, Obj2, []}
+  end,
+  case riakou:do(update_type, [Bucket, Key, riakc_map:to_op(Obj3), [create]]) of
+    ok ->
+      %% TODO make this more resilient to errors
+      [pivot_client:do(event_set, delete, Req#pivot_req{event_set = E}) || E <- SetsToDelete],
+      ok;
+    Error ->
+      Error
+  end.
+
+compute_score_and_cleanup(Count, Score, _, _, Obj, ?BUCKET_COUNT, SetsToDelete) ->
+  NewObj = riakc_map:update({<<"n">>, register}, fun(Reg) ->
+    riakc_register:set(integer_to_binary(Count), Reg)
+  end, Obj),
+  {ok, riakc_map:update({<<"s">>, register}, fun(Reg) ->
+    riakc_register:set(float_to_binary(Score, [{decimals, 10}, compact]), Reg)
+  end, NewObj), SetsToDelete};
+compute_score_and_cleanup(Count, Score, [Event|EventSet], Req, Obj, Remaining, SetsToDelete) ->
+  EReq = Req#pivot_req{event_set = Event},
+  case pivot_client:do(event_set, get, EReq#pivot_req{count = Count, score = Score}) of
+    {ok, {NewCount, NewScore}} ->
+      NewObj = riakc_map:update({<<"e">>, set}, fun(Set) ->
+        riakc_set:del_element(Event, Set)
+      end, Obj),
+      compute_score_and_cleanup(NewCount, NewScore, EventSet, Req, NewObj, Remaining - 1, [Event|SetsToDelete]);
+    Error ->
+      Error
+  end.
+
+add_event_set(Current, Obj) ->
+  NewObj = riakc_map:update({<<"c">>, register}, fun(Reg) ->
+    riakc_register:set(Current, Reg)
+  end, Obj),
+  riakc_map:update({<<"e">>, set}, fun(Set) ->
+    riakc_set:add_element(Current, Set)
+  end, NewObj).
+
+get_or_create(Bucket, Key) ->
+  case riakou:do(fetch_type, [Bucket, Key]) of
+    {ok, Obj} ->
+      {ok, Obj};
+    {error, {notfound, _}} ->
+      {ok, riakc_map:new()};
+    Error ->
+      Error
+  end.
+
+map_get(Key, Obj) ->
+  map_get(Key, Obj, undefined).
+map_get(Key, Obj, Default) ->
+  case riakc_map:find(Key, Obj) of
+    error ->
+      Default;
+    {ok, Val} ->
+      Val
+  end.
+
+%% TODO do we need to loop back around when we hit a certain size? With the current
+%% implementation it will increase indefinitely...
+inc_bin(Bin) ->
+  binary:encode_unsigned(binary:decode_unsigned(Bin) + 1).
