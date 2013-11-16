@@ -23,6 +23,7 @@ get(#pivot_req{env = Env, app = App, version = Version}) ->
   end.
 
 renew(Req) ->
+  %% TODO Throttle this
   case pivot_client:do(bandits, enabled, Req#pivot_req{bandit = undefined}) of
     {ok, []} ->
       ok;

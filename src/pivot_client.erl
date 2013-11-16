@@ -7,13 +7,17 @@
 -export([do/3]).
 -export([do_async/3]).
 -export([new/1]).
+% private
+-export([noop/5]).
+-export([bootstrap/0]).
 
 -include("pivot_clients_api.hrl").
 
--define(LOG(NS, Fun, Time, App, ReqID), io:format("measure#~p.~p=~pµs app=~s request_id=~s~n", [NS, Fun, Time, App, ReqID])).
+-define(LOG(NS, Fun, Time, App, ReqID),
+  io:format("measure#~p.~p=~pus count#req.~p.~p=1 app=~s request_id=~s~n", [NS, Fun, Time, NS, Fun, App, ReqID])).
 
 % -undef(LOG).
-% -define(LOG(NS, Fun, Time, App, ReqID), noop).
+% -define(LOG(NS, Fun, Time, App, ReqID), noop(NS, Fun, Time, App, ReqID)).
 
 p(Funs) ->
   rpc:pmap({?MODULE, do_p}, [], Funs).
@@ -76,9 +80,9 @@ new([{count, V}|Props], Req) ->
 new([{score, V}|Props], Req) ->
   new(Props, Req#pivot_req{score = V}).
 
-do(NS, Fun, Req = #pivot_req{id = _ReqID, app = _App}) ->
-  {_Time, Res} = timer:tc(mod(NS), Fun, [Req]),
-  ?LOG(NS, Fun, _Time, _App, _ReqID),
+do(NS, Fun, Req = #pivot_req{id = ReqID, app = App}) ->
+  {Time, Res} = timer:tc(mod(NS), Fun, [Req]),
+  ?LOG(NS, Fun, Time, App, ReqID),
   Res.
 
 do_async(NS, Fun, Req) ->
@@ -108,3 +112,19 @@ mod(arms) ->
   pivot_clients_api_arms;
 mod(Mod) ->
   Mod.
+
+noop(_, _, _, _, _) ->
+  ok.
+
+bootstrap() ->
+  Req = new([]),
+  p([
+    {bandits, enable, Req#pivot_req{bandit = <<"bandit1">>}},
+    {arms, enable, Req#pivot_req{bandit = <<"bandit1">>, arm = <<"arm1">>}},
+    {arms, enable, Req#pivot_req{bandit = <<"bandit1">>, arm = <<"arm2">>}},
+    {bandits, enable, Req#pivot_req{bandit = <<"bandit2">>}},
+    {arms, enable, Req#pivot_req{bandit = <<"bandit2">>, arm = <<"arm1">>}},
+    {arms, enable, Req#pivot_req{bandit = <<"bandit2">>, arm = <<"arm2">>}},
+    {rewards, set, Req#pivot_req{reward = <<"0.9">>, event = <<"click">>}},
+    {rewards, set, Req#pivot_req{reward = <<"0.2">>, event = <<"thingy">>}}
+  ]).
