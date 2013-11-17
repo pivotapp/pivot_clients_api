@@ -3,35 +3,63 @@
 %%
 -module(pivot_clients_api_event_set).
 
+-export([init/0]).
 -export([get/1]).
 -export([add/1]).
 -export([delete/1]).
 -export([encode/2]).
 -export([decode/1]).
 
+%% private
+-export([clear_buffer/3]).
+
 -include("pivot_clients_api.hrl").
+
+-define(BUFFER, pivot_event_set_buffer).
+-define(BUFFER_RATE, 50).
 
 -define(STATE_BUCKET(Env), <<"eset:", Env/binary>>).
 -define(STATE_KEY(App, Version, Bandit, Arm, EventSet), ?KEY_HASH(App, Version, Bandit, Arm, EventSet)).
 
+init() ->
+  ets:new(?BUFFER, [bag, public, {write_concurrency, true}, named_table]).
+
 add(#pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm, event_set = Set, reward = Reward, user = UserID}) ->
-  Bucket = {<<"set">>, ?STATE_BUCKET(Env)},
+  Bucket = ?STATE_BUCKET(Env),
   Key = ?STATE_KEY(App, Version, Bandit, Arm, Set),
-  case get_or_create(Bucket, Key) of
+  Value = encode(UserID, Reward),
+  true = ets:insert(?BUFFER, {{Bucket, Key}, Value}),
+  rate_limit:exec(?MODULE, clear_buffer, [Bucket, Key, App], {Bucket, Key}, ?BUFFER_RATE, true).
+
+clear_buffer(Bucket, Key, App) ->
+  BucketType = {<<"set">>, Bucket},
+  case get_or_create(BucketType, Key) of
     {ok, EventSet} ->
-      NewEventSet = riakc_set:add_element(encode(UserID, Reward), EventSet),
-      case riakou:do(update_type, [Bucket, Key, riakc_set:to_op(NewEventSet), [create]]) of
-        ok ->
-          {ok, riakc_set:size(NewEventSet)};
-        Error ->
-          Error
+      case ets:lookup(?BUFFER, {Bucket, Key}) of
+        [] ->
+          {ok, riakc_set:size(EventSet)};
+        Events ->
+          io:format("measure#event_set.buffer=~pevents app=~s~n", [length(Events), App]),
+          NewEventSet = add_values(EventSet, Events),
+          case riakou:do(?EVENT_SET_GROUP, update_type, [BucketType, Key, riakc_set:to_op(NewEventSet), [create]]) of
+            ok ->
+              true = ets:delete(?BUFFER, {Bucket, Key}),
+              {ok, riakc_set:size(NewEventSet)};
+            Error ->
+              Error
+          end
       end;
     Error ->
       Error
   end.
 
+add_values(EventSet, []) ->
+  EventSet;
+add_values(EventSet, [{_, Event}|Events]) ->
+  add_values(riakc_set:add_element(Event, EventSet), Events).
+
 get_or_create(Bucket, Key) ->
-  case riakou:do(fetch_type, [Bucket, Key]) of
+  case riakou:do(?EVENT_SET_GROUP, fetch_type, [Bucket, Key]) of
     {ok, EventSet} ->
       {ok, EventSet};
     {error, {notfound, _}} ->
@@ -41,7 +69,7 @@ get_or_create(Bucket, Key) ->
   end.
 
 get(#pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm, event_set = Set, count = Count, score = Score}) ->
-  case riakou:do(fetch_type, [{<<"set">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, Bandit, Arm, Set)]) of
+  case riakou:do(?EVENT_SET_GROUP, fetch_type, [{<<"set">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, Bandit, Arm, Set)]) of
     {ok, Obj} ->
       %% NOTE
       %% This is not sorting because the riakc_set is an ordset. This is an implementation
@@ -55,7 +83,7 @@ get(#pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = A
   end.
 
 delete(#pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm, event_set = Set}) ->
-  riakou:do(delete, [{<<"set">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, Bandit, Arm, Set)]).
+  riakou:do(?EVENT_SET_GROUP, delete, [{<<"set">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, Bandit, Arm, Set)]).
 
 chain(Count, Score, []) ->
   {Count, Score};

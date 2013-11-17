@@ -13,7 +13,7 @@
 -define(SELECTIONS_KEY(App, Version), ?KEY_HASH(App, Version)).
 
 get(#pivot_req{env = Env, app = App, version = Version}) ->
-  case riakou:do(fetch_type, [{<<"map">>, ?SELECTIONS_BUCKET(Env)}, ?SELECTIONS_KEY(App, Version)]) of
+  case riakou:do(?SELECTIONS_GROUP, fetch_type, [{<<"map">>, ?SELECTIONS_BUCKET(Env)}, ?SELECTIONS_KEY(App, Version)]) of
     {ok, Obj} ->
       {ok, [{Bandit, Arm} || {{Bandit, _}, Arm} <- riakc_map:value(Obj)]};
     {error, {notfound, _}} ->
@@ -46,7 +46,7 @@ set(#pivot_req{env = Env, app = App, version = Version, selections = Selections}
   Key = ?SELECTIONS_KEY(App, Version),
   Options = [create],
   Args = [Fun, BucketAndType, Key, Options],
-  riakou:do(modify_type, Args).
+  riakou:do(?SELECTIONS_GROUP, modify_type, Args).
 
 update(Map, []) ->
   Map;

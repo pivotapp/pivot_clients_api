@@ -7,16 +7,21 @@
 -export([get/1]).
 -export([add/1]).
 
+%% private
+-export([cleanup/4]).
+
 -include("pivot_clients_api.hrl").
 
 -define(STATE_BUCKET(Env), <<"state:", Env/binary>>).
 -define(STATE_KEY(App, Version, Bandit, Arm), ?KEY_HASH(App, Version, Bandit, Arm)).
 
+%% TODO figure out how much state we need to keep around
+%%      before it becomes outdated with the UCB1
 -define(BUCKET_SIZE, 50).
 -define(BUCKET_COUNT, 20).
 
 get(Req = #pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm}) ->
-  case riakou:do(fetch_type, [{<<"map">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, Bandit, Arm)]) of
+  case riakou:do(?ARM_STATE_GROUP, fetch_type, [{<<"map">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, Bandit, Arm)]) of
     {ok, Obj} ->
       Count = binary_to_integer(map_get({<<"n">>, register}, Obj, <<"0">>)),
       Score = binary_to_float(map_get({<<"s">>, register}, Obj, <<"0.0">>)),
@@ -59,8 +64,10 @@ add(Req = #pivot_req{env = Env, app = App, version = Version, bandit = Bandit, a
 
       case pivot_client:do(event_set, add, EReq) of
         {ok, Size} when Size > ?BUCKET_SIZE ->
-          cleanup(Bucket, Key, Obj, EReq);
+          rate_limit:exec(?MODULE, cleanup, [Bucket, Key, Obj, EReq], {Bucket, Key}, 50);
         {ok, _} ->
+          maybe_update(Bucket, Key, Obj, Obj2);
+        ok ->
           maybe_update(Bucket, Key, Obj, Obj2);
         Error ->
           Error
@@ -72,7 +79,7 @@ add(Req = #pivot_req{env = Env, app = App, version = Version, bandit = Bandit, a
 maybe_update(_, _, Obj, Obj) ->
   ok;
 maybe_update(Bucket, Key, _, Obj) ->
-  riakou:do(update_type, [Bucket, Key, riakc_map:to_op(Obj), [create]]).
+  riakou:do(?ARM_STATE_GROUP, update_type, [Bucket, Key, riakc_map:to_op(Obj), [create]]).
 
 current(Obj) ->
   case map_get({<<"c">>, register}, Obj) of
@@ -106,10 +113,13 @@ cleanup(Bucket, Key, Obj, Req = #pivot_req{event_set = Current}) ->
     _ ->
       {ok, Obj2, []}
   end,
-  case riakou:do(update_type, [Bucket, Key, riakc_map:to_op(Obj3), [create]]) of
+  case riakou:do(?ARM_STATE_GROUP, update_type, [Bucket, Key, riakc_map:to_op(Obj3), [create]]) of
     ok ->
       %% TODO make this more resilient to errors
       [pivot_client:do(event_set, delete, Req#pivot_req{event_set = E}) || E <- SetsToDelete],
+      ok;
+    %% another worker already deleted it from the set
+    {error, <<"{precondition,{not_present", _/binary>>} ->
       ok;
     Error ->
       Error
@@ -143,7 +153,7 @@ add_event_set(Current, Obj) ->
   end, NewObj).
 
 get_or_create(Bucket, Key) ->
-  case riakou:do(fetch_type, [Bucket, Key]) of
+  case riakou:do(?ARM_STATE_GROUP, fetch_type, [Bucket, Key]) of
     {ok, Obj} ->
       {ok, Obj};
     {error, {notfound, _}} ->

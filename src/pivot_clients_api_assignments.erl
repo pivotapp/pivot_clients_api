@@ -13,7 +13,7 @@
 -define(ASSIGNMENTS_KEY(App, UserID, Version), ?KEY_HASH(App, UserID, Version)).
 
 get(#pivot_req{env = Env, app = App, version = Version, user = UserID}) ->
-  case riakou:do(fetch_type, [{<<"map">>, ?ASSIGNMENTS_BUCKET(Env)}, ?ASSIGNMENTS_KEY(App, UserID, Version)]) of
+  case riakou:do(?ASSIGNMENTS_GROUP, fetch_type, [{<<"map">>, ?ASSIGNMENTS_BUCKET(Env)}, ?ASSIGNMENTS_KEY(App, UserID, Version)]) of
     {ok, Obj} ->
       Assignments = [{Bandit, Arm} || {{Bandit, _}, Arm} <- riakc_map:value(Obj)],
       {ok, Assignments};
@@ -50,7 +50,7 @@ set(#pivot_req{env = Env, app = App, version = Version, user = UserID, selection
   Key = ?ASSIGNMENTS_KEY(App, UserID, Version),
   Options = [create],
   Args = [Fun, BucketAndType, Key, Options],
-  riakou:do(modify_type, Args).
+  riakou:do(?ASSIGNMENTS_GROUP, modify_type, Args).
 
 update(Map, []) ->
   Map;

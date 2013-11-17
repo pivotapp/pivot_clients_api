@@ -10,11 +10,21 @@
 % private
 -export([noop/5]).
 -export([bootstrap/0]).
+-export([test_event_set/2]).
+-export([test_arm_get/0]).
 
 -include("pivot_clients_api.hrl").
 
 -define(LOG(NS, Fun, Time, App, ReqID),
   io:format("measure#~p.~p=~pus count#req.~p.~p=1 app=~s request_id=~s~n", [NS, Fun, Time, NS, Fun, App, ReqID])).
+
+% -define(LOG(NS, Fun, Time, App, ReqID),
+%   (case Time > 20000 of
+%     true ->
+%       io:format("measure#~p.~p=~pms count#req.~p.~p=1 app=~s request_id=~s~n", [NS, Fun, Time/1000, NS, Fun, App, ReqID]);
+%     _ ->
+%       ok
+%   end)).
 
 % -undef(LOG).
 % -define(LOG(NS, Fun, Time, App, ReqID), noop(NS, Fun, Time, App, ReqID)).
@@ -28,9 +38,6 @@ do_p({NS, Fun, Req}) ->
       {error, {missing, NS, Fun}};
     {'EXIT', Error} ->
       {error, Error};
-    {error, no_connections} = E ->
-      io:format("count#no_connections.~s.~s=1 app=~s request_id=~s~n", [NS, Fun, Req#pivot_req.app, Req#pivot_req.id]),
-      E;
     Res ->
       Res
   end.
@@ -83,7 +90,13 @@ new([{score, V}|Props], Req) ->
 do(NS, Fun, Req = #pivot_req{id = ReqID, app = App}) ->
   {Time, Res} = timer:tc(mod(NS), Fun, [Req]),
   ?LOG(NS, Fun, Time, App, ReqID),
-  Res.
+  case Res of
+    {error, no_connections} = E ->
+      io:format("count#no_connections.~s.~s=1 app=~s request_id=~s~n", [NS, Fun, Req#pivot_req.app, Req#pivot_req.id]),
+      E;
+    Res2 ->
+      Res2
+  end.
 
 do_async(NS, Fun, Req) ->
   %% TODO supervise this
@@ -128,3 +141,21 @@ bootstrap() ->
     {rewards, set, Req#pivot_req{reward = <<"0.9">>, event = <<"click">>}},
     {rewards, set, Req#pivot_req{reward = <<"0.2">>, event = <<"thingy">>}}
   ]).
+
+test_event_set(Num, Workers) when is_integer(Workers) ->
+  Req = new([{bandit, <<"bandit1">>}, {arm, <<"arm1">>}, {reward, <<"0.9">>}]),
+  [spawn(?MODULE, test_event_set, [Num, Req]) || _ <- lists:seq(1, Workers)];
+test_event_set(0, _) ->
+  ok;
+test_event_set(Num, Req) ->
+  timer:sleep(random:uniform(100) + 5),
+  case do(arm_state, add, Req) of
+    ok ->
+      test_event_set(Num - 1, Req);
+    Error ->
+      io:format("ERROR!!! ~p~n", [Error])
+  end.
+
+test_arm_get() ->
+  Req = new([{bandit, <<"bandit1">>}, {arm, <<"arm1">>}]),
+  do(arm_state, get, Req).

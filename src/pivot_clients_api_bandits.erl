@@ -56,7 +56,7 @@ remove(Req = #pivot_req{bandit = Bandit}) ->
   update_dt(Fun, Req).
 
 clear(Req = #pivot_req{env = Env, app = App}) ->
-  case riakou:do(delete, [?BANDITS_BUCKET(Env), ?BANDITS_KEY(App)]) of
+  case riakou:do(?BANDITS_GROUP, delete, [?BANDITS_BUCKET(Env), ?BANDITS_KEY(App)]) of
     ok ->
       pivot_client:do_async(selections, renew, Req);
     Error ->
@@ -72,7 +72,7 @@ update(Req = #pivot_req{bandit = Bandit}, Op) ->
   update_dt(Fun, Req).
 
 get_map(#pivot_req{env = Env, app = App}) ->
-  case riakou:do(fetch_type, [{<<"map">>, ?BANDITS_BUCKET(Env)}, ?BANDITS_KEY(App)]) of
+  case riakou:do(?BANDITS_GROUP, fetch_type, [{<<"map">>, ?BANDITS_BUCKET(Env)}, ?BANDITS_KEY(App)]) of
     {ok, Obj} ->
       {ok, riakc_map:value(Obj)};
     {error, {notfound, _}} ->
@@ -87,7 +87,7 @@ update_dt(Fun, Req = #pivot_req{env = Env, app = App}) ->
   Options = [create],
   Args = [Fun, BucketAndType, Key, Options],
 
-  case riakou:do(modify_type, Args) of
+  case riakou:do(?BANDITS_GROUP, modify_type, Args) of
     ok ->
       pivot_client:do_async(selections, renew, Req);
     Error ->

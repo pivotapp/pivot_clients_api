@@ -6,11 +6,16 @@
 -export([start/2]).
 -export([stop/1]).
 
+-include("pivot_clients_api.hrl").
+
 %% API.
 
 start(_Type, _Args) ->
-  ok = riakou:start_link(simple_env:get_binary("RIAK_URL", <<"riak://localhost">>)),
-  ok = riakou:wait_for_connection(),
+  [begin
+    ok = riakou:start_link(Group, URL)
+  end || {Group, URL} <- ?RIAKOU_GROUPS],
+  rate_limit:start(),
+  pivot_clients_api_event_set:init(),
 
   erlenv:configure(fun configure/1),
 
