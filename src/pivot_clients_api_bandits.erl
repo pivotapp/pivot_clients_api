@@ -19,8 +19,6 @@
 -define(BANDITS_BUCKET(Env), <<"bandits:", Env/binary>>).
 -define(BANDITS_KEY(App), <<App/binary>>).
 
-%% TODO filter out <<0>>, <<1>>
-
 list(Req) ->
   case get_map(Req) of
     {ok, Bandits} ->
@@ -37,6 +35,8 @@ enabled(Req) ->
       Error
   end.
 
+enable(#pivot_req{bandit = ?SUPER_BANDIT}) ->
+  {error, reserved_name};
 enable(Req) ->
   update(Req, enable).
 
@@ -48,6 +48,8 @@ disabled(Req) ->
       Error
   end.
 
+disable(#pivot_req{bandit = ?SUPER_BANDIT}) ->
+  {error, reserved_name};
 disable(Req) ->
   update(Req, disable).
 
