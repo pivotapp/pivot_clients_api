@@ -16,36 +16,37 @@ init(_Transport, Req, []) ->
 
 handle(Req, State) ->
   {Method, Req2} = cowboy_req:method(Req),
-  {Test, Req3} = cowboy_req:qs_val(<<"test">>, Req2),
-  {ok, Req4} = check_method(Method, Test, Req3),
-  {ok, Req4, State}.
+  {ok, Req3} = check_method(Method, Req2),
+  {ok, Req3, State}.
 
-check_method(_, <<"1">>, Req) ->
-  reply(Req);
-check_method(<<"GET">>, _, Req) ->
+check_method(<<"GET">>, Req) ->
   {App, Req2} = cowboy_req:qs_val(<<"a">>, Req),
   {Event, Req3} = cowboy_req:qs_val(<<"e">>, Req2),
   {Token, Req4} = cowboy_req:qs_val(<<"t">>, Req3),
-  {Version, Req4} = cowboy_req:qs_val(<<"v">>, Req3, <<"*">>),
-  maybe_track(App, Event, Token, Version, Req4);
-check_method(<<"POST">>, _, Req) ->
+  {Version, Req5} = cowboy_req:qs_val(<<"v">>, Req4, <<"*">>),
+  {Test, Req6} = cowboy_req:qs_val(<<"test">>, Req5),
+  maybe_track(App, Event, Token, Version, Test, Req6);
+check_method(<<"POST">>, Req) ->
   {ok, Params, Req2} = cowboy_req:body_qs(Req),
   App = fast_key:get(<<"a">>, Params),
   Event = fast_key:get(<<"e">>, Params),
   Token = fast_key:get(<<"u">>, Params),
   Version = fast_key:get(<<"v">>, Params, <<"*">>),
-  maybe_track(App, Event, Token, Version, Req2);
-check_method(_, _, Req) ->
+  Test = fast_key:get(<<"test">>, Params),
+  maybe_track(App, Event, Token, Version, Test, Req2);
+check_method(_, Req) ->
   %% Method not allowed.
   cowboy_req:reply(405, Req).
 
-maybe_track(undefined, _, _, _, Req) ->
+maybe_track(undefined, _, _, _, _, Req) ->
   ?ERROR(<<"Missing app (a) parameter.">>, 400, Req);
-maybe_track(_, undefined, _, _, Req) ->
+maybe_track(_, undefined, _, _, _, Req) ->
   ?ERROR(<<"Missing event (e) parameter.">>, 400, Req);
-maybe_track(_, _, undefined, _, Req) ->
+maybe_track(_, _, undefined, _, _, Req) ->
   ?ERROR(<<"Missing token (t) parameter.">>, 400, Req);
-maybe_track(App, Event, Token, Version, Req) ->
+maybe_track(_, _, _, _, <<"1">>, Req) ->
+  reply(Req);
+maybe_track(App, Event, Token, Version, undefined, Req) ->
   RequestID = cowboy_request_id:get(Req),
   PReq = #pivot_req{
     id = RequestID,

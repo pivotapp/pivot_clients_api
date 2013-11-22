@@ -13,15 +13,17 @@
 -include("pivot_clients_api.hrl").
 
 -define(STATE_BUCKET(Env), <<"state:", Env/binary>>).
--define(STATE_KEY(App, Version, Bandit, Arm), ?KEY_HASH(App, Version, Bandit, Arm)).
+-define(STATE_KEY(App, Version, BanditArm), ?KEY_HASH(App, Version, BanditArm)).
 
 %% TODO figure out how much state we need to keep around
 %%      before it becomes outdated with the UCB1
 -define(BUCKET_SIZE, 50).
 -define(BUCKET_COUNT, 20).
 
-get(Req = #pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm}) ->
-  case riakou:do(?ARM_STATE_GROUP, fetch_type, [{<<"map">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, Bandit, Arm)]) of
+get(Req = #pivot_req{bandit = Bandit, arm = Arm, bandit_arm = undefined}) ->
+  ?MODULE:get(Req#pivot_req{bandit_arm = ?BANDIT_ARM_HASH(Bandit, Arm)});
+get(Req = #pivot_req{env = Env, app = App, version = Version, arm = Arm, bandit_arm = BanditArm}) ->
+  case riakou:do(?ARM_STATE_GROUP, fetch_type, [{<<"map">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, BanditArm)]) of
     {ok, Obj} ->
       Count = binary_to_integer(map_get({<<"n">>, register}, Obj, <<"0">>)),
       Score = binary_to_float(map_get({<<"s">>, register}, Obj, <<"0.0">>)),
@@ -54,9 +56,11 @@ compute_score(Count, Score, [Event|EventSet], Req) ->
       Error
   end.
 
-add(Req = #pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm}) ->
+add(Req = #pivot_req{bandit = Bandit, arm = Arm, bandit_arm = undefined}) ->
+  add(Req#pivot_req{bandit_arm = ?BANDIT_ARM_HASH(Bandit, Arm)});
+add(Req = #pivot_req{env = Env, app = App, version = Version, bandit_arm = BanditArm}) ->
   Bucket = {<<"map">>, ?STATE_BUCKET(Env)},
-  Key = ?STATE_KEY(App, Version, Bandit, Arm),
+  Key = ?STATE_KEY(App, Version, BanditArm),
   case get_or_create(Bucket, Key) of
     {ok, Obj} ->
       {Current, Obj2} = current(Obj),

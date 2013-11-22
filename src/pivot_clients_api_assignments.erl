@@ -42,20 +42,18 @@ encode([], BanditArms) ->
   Salt = crypto:strong_rand_bytes(?SALT_LENGTH),
   Token = list_to_binary(BanditArms),
   websaferl:encode(<<(hmac(Salt, Token))/binary, Salt/binary, Token/binary>>);
-encode([{Bandit, Arm}|Selections], []) ->
-  encode(Selections, [Bandit, <<0>>, Arm]);
 encode([{Bandit, Arm}|Selections], Token) ->
-  encode(Selections, [Bandit, <<0>>, Arm, <<0>>, Token]).
+  encode(Selections, [?BANDIT_ARM_HASH(Bandit, Arm)|Token]).
 
 decode(HToken) ->
-  <<HMAC:16/binary, Salt:?SALT_LENGTH/binary, Token/binary>> = websaferl:decode(HToken),
-  HMAC = hmac(Salt, Token),
-  decode(binary:split(Token, <<0>>, [global]), []).
+  <<HMAC:16/binary, Salt:?SALT_LENGTH/binary, Assignments/binary>> = websaferl:decode(HToken),
+  HMAC = hmac(Salt, Assignments),
+  decode(Assignments, []).
 
-decode([], Assignments) ->
+decode(<<>>, Assignments) ->
   Assignments;
-decode([Bandit, Arm|Rest], Assignments) ->
-  decode(Rest, [{Bandit, Arm}|Assignments]).
+decode(<<Assignment:?BANDIT_ARM_HASH_LENGTH/binary, Rest/binary>>, Assignments) ->
+  decode(Rest, [Assignment|Assignments]).
 
 hmac(Salt, Token) ->
   crypto:hmac(md5, simple_env:get_binary("ASSIGNMENTS_KEY"), [Salt, Token]).

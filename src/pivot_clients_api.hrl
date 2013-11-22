@@ -18,6 +18,7 @@
   event,
   bandit,
   arm,
+  bandit_arm,
   arms,
   reward,
   selections,
@@ -38,10 +39,12 @@
 -define(KEY_HASH(A, B, C, D, E), ?KEY_HASH([A, ?KEYD, B, ?KEYD, C, ?KEYD, D, ?KEYD, E])).
 -define(KEY_HASH(A, B, C, D, E, F), ?KEY_HASH([A, ?KEYD, B, ?KEYD, C, ?KEYD, D, ?KEYD, E, ?KEYD, F])).
 
+-define(BANDIT_ARM_HASH(Bandit, Arm), (<<(erlang:phash2([Bandit, 0, Arm])):32>>)).
+-define(BANDIT_ARM_HASH_LENGTH, 4).
+
 %% riakou groups
 -define(ARM_STATE_GROUP, pdefault).
 -define(ARMS_GROUP, pdefault).
--define(ASSIGNMENTS_GROUP, assigments).
 -define(BANDITS_GROUP, pdefault).
 -define(EVENT_SET_GROUP, event_set).
 -define(REWARDS_GROUP, pdefault).
@@ -49,6 +52,5 @@
 
 -define(RIAKOU_GROUPS, [
   {?ARM_STATE_GROUP, <<"riak://localhost:8087">>},
-  {?ASSIGNMENTS_GROUP, <<"riak://localhost:8086">>},
   {?EVENT_SET_GROUP, <<"riak://localhost:8088">>}
 ]).

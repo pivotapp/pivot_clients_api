@@ -19,14 +19,14 @@
 -define(BUFFER_RATE, 50).
 
 -define(STATE_BUCKET(Env), <<"eset:", Env/binary>>).
--define(STATE_KEY(App, Version, Bandit, Arm, EventSet), ?KEY_HASH(App, Version, Bandit, Arm, EventSet)).
+-define(STATE_KEY(App, Version, BanditArm, EventSet), ?KEY_HASH(App, Version, BanditArm, EventSet)).
 
 init() ->
   ets:new(?BUFFER, [bag, public, {write_concurrency, true}, named_table]).
 
-add(#pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm, event_set = Set, reward = Reward, token = Token}) ->
+add(#pivot_req{env = Env, app = App, version = Version, bandit_arm = BanditArm, event_set = Set, reward = Reward, token = Token}) ->
   Bucket = ?STATE_BUCKET(Env),
-  Key = ?STATE_KEY(App, Version, Bandit, Arm, Set),
+  Key = ?STATE_KEY(App, Version, BanditArm, Set),
   Value = encode(Token, Reward),
   true = ets:insert(?BUFFER, {{Bucket, Key}, Value}),
   rate_limit:exec(?MODULE, clear_buffer, [Bucket, Key, App], {Bucket, Key}, ?BUFFER_RATE, true).
@@ -68,8 +68,8 @@ get_or_create(Bucket, Key) ->
       Error
   end.
 
-get(#pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm, event_set = Set, count = Count, score = Score}) ->
-  case riakou:do(?EVENT_SET_GROUP, fetch_type, [{<<"set">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, Bandit, Arm, Set)]) of
+get(#pivot_req{env = Env, app = App, version = Version, bandit_arm = BanditArm, event_set = Set, count = Count, score = Score}) ->
+  case riakou:do(?EVENT_SET_GROUP, fetch_type, [{<<"set">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, BanditArm, Set)]) of
     {ok, Obj} ->
       %% NOTE
       %% This is not sorting because the riakc_set is an ordset. This is an implementation
@@ -82,8 +82,8 @@ get(#pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = A
       Error
   end.
 
-delete(#pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm, event_set = Set}) ->
-  riakou:do(?EVENT_SET_GROUP, delete, [{<<"set">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, Bandit, Arm, Set)]).
+delete(#pivot_req{env = Env, app = App, version = Version, bandit_arm = BanditArm, event_set = Set}) ->
+  riakou:do(?EVENT_SET_GROUP, delete, [{<<"set">>, ?STATE_BUCKET(Env)}, ?STATE_KEY(App, Version, BanditArm, Set)]).
 
 chain(Count, Score, []) ->
   {Count, Score};

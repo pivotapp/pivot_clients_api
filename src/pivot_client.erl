@@ -10,8 +10,6 @@
 % private
 -export([noop/5]).
 -export([bootstrap/0]).
--export([test_event_set/2]).
--export([test_arm_get/0]).
 
 -include("pivot_clients_api.hrl").
 
@@ -140,21 +138,3 @@ bootstrap() ->
     {rewards, set, Req#pivot_req{reward = <<"0.9">>, event = <<"click">>}},
     {rewards, set, Req#pivot_req{reward = <<"0.2">>, event = <<"thingy">>}}
   ]).
-
-test_event_set(Num, Workers) when is_integer(Workers) ->
-  Req = new([{bandit, <<"bandit1">>}, {arm, <<"arm1">>}, {reward, <<"0.9">>}]),
-  [spawn(?MODULE, test_event_set, [Num, Req]) || _ <- lists:seq(1, Workers)];
-test_event_set(0, _) ->
-  ok;
-test_event_set(Num, Req) ->
-  timer:sleep(random:uniform(100) + 5),
-  case do(arm_state, add, Req) of
-    ok ->
-      test_event_set(Num - 1, Req);
-    Error ->
-      io:format("ERROR!!! ~p~n", [Error])
-  end.
-
-test_arm_get() ->
-  Req = new([{bandit, <<"bandit1">>}, {arm, <<"arm1">>}]),
-  do(arm_state, get, Req).
