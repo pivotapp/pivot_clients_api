@@ -14,7 +14,7 @@
   env,
   app,
   version = <<"*">>,
-  user,
+  token,
   event,
   bandit,
   arm,

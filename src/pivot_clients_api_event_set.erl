@@ -24,10 +24,10 @@
 init() ->
   ets:new(?BUFFER, [bag, public, {write_concurrency, true}, named_table]).
 
-add(#pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm, event_set = Set, reward = Reward, user = UserID}) ->
+add(#pivot_req{env = Env, app = App, version = Version, bandit = Bandit, arm = Arm, event_set = Set, reward = Reward, token = Token}) ->
   Bucket = ?STATE_BUCKET(Env),
   Key = ?STATE_KEY(App, Version, Bandit, Arm, Set),
-  Value = encode(UserID, Reward),
+  Value = encode(Token, Reward),
   true = ets:insert(?BUFFER, {{Bucket, Key}, Value}),
   rate_limit:exec(?MODULE, clear_buffer, [Bucket, Key, App], {Bucket, Key}, ?BUFFER_RATE, true).
 
@@ -92,16 +92,16 @@ chain(Count, Score, [Event|Events]) ->
   NewScore = ((N - 1.0) / N) * Score + (1.0 / N) * decode(Event),
   chain(N, NewScore, Events).
 
-id(User) ->
+id(Token) ->
   {Megasecs, Secs, Microsecs} = erlang:now(),
   Time = (((Megasecs * 1000000) + Secs) * 1000000) + Microsecs,
-  Hash = erlang:phash2(User),
+  Hash = erlang:phash2(Token),
   <<Time:64, Hash:32>>.
 
-encode(User, Reward) when is_float(Reward) ->
-  encode(User, float_to_binary(Reward, [{decimals, 10}, compact]));
-encode(User, Reward) ->
-  <<(id(User))/binary, Reward/binary>>.
+encode(Token, Reward) when is_float(Reward) ->
+  encode(Token, float_to_binary(Reward, [{decimals, 10}, compact]));
+encode(Token, Reward) ->
+  <<(id(Token))/binary, Reward/binary>>.
 
 decode(<<_:96, Reward/binary>>) ->
   binary_to_float(Reward).

@@ -52,8 +52,7 @@ new(Props) ->
     id = <<"test-request-id">>,
     env = <<"production">>,
     app = <<"app">>,
-    version = <<"*">>,
-    user = <<"user">>
+    version = <<"*">>
   }).
 
 new([], Req) ->
@@ -66,8 +65,8 @@ new([{app, V}|Props], Req) ->
   new(Props, Req#pivot_req{app = V});
 new([{version, V}|Props], Req) ->
   new(Props, Req#pivot_req{version = V});
-new([{user, V}|Props], Req) ->
-  new(Props, Req#pivot_req{user = V});
+new([{token, V}|Props], Req) ->
+  new(Props, Req#pivot_req{token = V});
 new([{event, V}|Props], Req) ->
   new(Props, Req#pivot_req{event = V});
 new([{bandit, V}|Props], Req) ->

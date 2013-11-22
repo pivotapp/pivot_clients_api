@@ -3,73 +3,59 @@
 %%
 -module(pivot_clients_api_assignments).
 
--export([get/1]).
--export([set/1]).
 -export([assign/1]).
+-export([get/1]).
+-export([encode/1]).
+-export([decode/1]).
 
 -include("pivot_clients_api.hrl").
 
--define(ASSIGNMENTS_BUCKET(Env), <<"assignments:", Env/binary>>).
--define(ASSIGNMENTS_KEY(App, UserID, Version), ?KEY_HASH(App, UserID, Version)).
-
-get(#pivot_req{env = Env, app = App, version = Version, user = UserID}) ->
-  case riakou:do(?ASSIGNMENTS_GROUP, fetch_type, [{<<"map">>, ?ASSIGNMENTS_BUCKET(Env)}, ?ASSIGNMENTS_KEY(App, UserID, Version)]) of
-    {ok, Obj} ->
-      Assignments = [{Bandit, Arm} || {{Bandit, _}, Arm} <- riakc_map:value(Obj)],
-      {ok, Assignments};
-    {error, {notfound, _}} ->
-      {ok, []}
-  end.
+-define(SALT_LENGTH, 4).
 
 assign(Req) ->
-  %% TODO if the assignments call returns before the selections with valid assignments use those
-  Res = pivot_client:p([
-    {assignments, get, Req},
-    {selections, get, Req}
-  ]),
-  handle_assignment(Res, Req).
+  case pivot_client:do(selections, get, Req) of
+    {ok, Selections} ->
+      %% TODO get the app prefrence on the length of an assignment
+      %% TODO notify a subscriber (for things like analytics)
+      {ok, filter_superbandit(Selections), encode(Selections), 86400};
+    Error ->
+      Error
+  end.
 
-handle_assignment([{ok, []}, {ok, Selections}], Req) ->
-  ok = pivot_client:do_async(assignments, set, Req#pivot_req{selections = Selections}),
-  {ok, filter_superbandit(Selections)};
-handle_assignment([{ok, Assignments}, _], _) ->
-  {ok, filter_superbandit(Assignments)};
-handle_assignment([{ok, []}, Error], _) ->
-  Error;
-handle_assignment([Error, _], _) ->
-  Error.
+get(#pivot_req{token = Token, id = ReqID, app = App}) ->
+  case catch decode(Token) of
+    {'EXIT', _} ->
+      io:format("count#invalid_token=1 token=~s app=~s request_id=~s~n", [Token, App, ReqID]),
+      {error, invalid_token};
+    Selections ->
+      {ok, Selections}
+  end.
 
 filter_superbandit(Assignments) ->
   [BA || BA = {Bandit, _} <- Assignments, Bandit =/= ?SUPER_BANDIT].
 
-set(#pivot_req{env = Env, app = App, version = Version, user = UserID, selections = Selections}) ->
-  Fun = fun(Map) ->
-    update(remove(Map, Selections), Selections)
-  end,
-  BucketAndType = {<<"map">>, ?ASSIGNMENTS_BUCKET(Env)},
-  Key = ?ASSIGNMENTS_KEY(App, UserID, Version),
-  Options = [create],
-  Args = [Fun, BucketAndType, Key, Options],
-  riakou:do(?ASSIGNMENTS_GROUP, modify_type, Args).
+encode(Selections) ->
+  encode(Selections, []).
 
-update(Map, []) ->
-  Map;
-update(Map, [{Bandit, Arm}|Selections]) ->
-  Map2 = riakc_map:update({Bandit, register}, fun(Reg) ->
-    riakc_register:set(Arm, Reg)
-  end, Map),
-  update(Map2, Selections).
+encode([], BanditArms) ->
+  %% Generate a salt so no user gets the same token for the same assignments
+  Salt = crypto:strong_rand_bytes(?SALT_LENGTH),
+  Token = list_to_binary(BanditArms),
+  websaferl:encode(<<(hmac(Salt, Token))/binary, Salt/binary, Token/binary>>);
+encode([{Bandit, Arm}|Selections], []) ->
+  encode(Selections, [Bandit, <<0>>, Arm]);
+encode([{Bandit, Arm}|Selections], Token) ->
+  encode(Selections, [Bandit, <<0>>, Arm, <<0>>, Token]).
 
-remove(Map, Selections) ->
-  remove(Map, Selections, riakc_map:value(Map)).
+decode(HToken) ->
+  <<HMAC:16/binary, Salt:?SALT_LENGTH/binary, Token/binary>> = websaferl:decode(HToken),
+  HMAC = hmac(Salt, Token),
+  decode(binary:split(Token, <<0>>, [global]), []).
 
-remove(Map, _, []) ->
-  Map;
-remove(Map, Selections, [{{Bandit, register}, _}|Prev]) ->
-  Map2 = case lists:keysearch(Bandit, 1, Selections) of
-    false ->
-      riakc_map:erase({Bandit, register}, Map);
-    _ ->
-      Map
-  end,
-  remove(Map2, Selections, Prev).
+decode([], Assignments) ->
+  Assignments;
+decode([Bandit, Arm|Rest], Assignments) ->
+  decode(Rest, [{Bandit, Arm}|Assignments]).
+
+hmac(Salt, Token) ->
+  crypto:hmac(md5, simple_env:get_binary("ASSIGNMENTS_KEY"), [Salt, Token]).

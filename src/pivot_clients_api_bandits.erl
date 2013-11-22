@@ -19,6 +19,8 @@
 -define(BANDITS_BUCKET(Env), <<"bandits:", Env/binary>>).
 -define(BANDITS_KEY(App), <<App/binary>>).
 
+%% TODO filter out <<0>>, <<1>>
+
 list(Req) ->
   case get_map(Req) of
     {ok, Bandits} ->

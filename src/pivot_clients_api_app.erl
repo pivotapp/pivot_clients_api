@@ -31,6 +31,10 @@ start(_Type, _Args) ->
       {cowboy_fun, cowboy_request_id:init([
         {header, simple_env:get_binary("REQUEST_ID_HEADER", <<"x-request-id">>)}
       ])},
+      {cowboy_fun, cowboy_cors:init([
+        {headers, <<"origin, x-requested-with, cache-control">>},
+        {methods, <<"GET">>}
+      ])},
       cowboy_router,
       cowboy_handler
     ]}
