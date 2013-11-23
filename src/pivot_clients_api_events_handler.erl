@@ -9,8 +9,6 @@
 
 -include("pivot_clients_api.hrl").
 
--define(TRANSPARENT_GIF, <<71,73,70,56,57,97,1,0,1,0,128,0,0,0,0,0,255,255,255,33,249,4,1,0,0,0,0,44,0,0,0,0,1,0,1,0,0,2,1,68,0,59>>).
-
 init(_Transport, Req, []) ->
   {ok, Req, undefined}.
 
@@ -48,14 +46,15 @@ maybe_track(_, _, _, _, <<"1">>, Req) ->
   reply(Req);
 maybe_track(App, Event, Token, Version, undefined, Req) ->
   RequestID = cowboy_request_id:get(Req),
-  PReq = #pivot_req{
-    id = RequestID,
-    env = cowboy_env:get(Req),
-    app = App,
-    version = Version,
-    token = Token,
-    event = Event
-  },
+
+  PReq = pivot:req([
+    {id, RequestID},
+    {env, cowboy_env:get(Req)},
+    {app, App},
+    {version, Version},
+    {token, Token},
+    {event, Event}
+  ]),
 
   pivot_client:do_async(events, add, PReq),
   reply(Req).

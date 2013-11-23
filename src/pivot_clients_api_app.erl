@@ -11,12 +11,6 @@
 %% API.
 
 start(_Type, _Args) ->
-  [begin
-    ok = riakou:start_link(Group, URL)
-  end || {Group, URL} <- ?RIAKOU_GROUPS],
-  rate_limit:start(),
-  pivot_clients_api_event_set:init(),
-
   erlenv:configure(fun configure/1),
 
   {ok, _} = cowboy:start_http(http, 100, [

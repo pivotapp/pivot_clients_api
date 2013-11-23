@@ -30,22 +30,20 @@ maybe_assign(undefined, _, Req) ->
 maybe_assign(App, Version, Req) ->
   RequestID = cowboy_request_id:get(Req),
 
-  PReq = #pivot_req{
-    id = RequestID,
-    env = cowboy_env:get(Req),
-    app = App,
-    version = Version
-  },
+  PReq = pivot:req([
+    {id, RequestID},
+    {env, cowboy_env:get(Req)},
+    {app, App},
+    {version, Version}
+  ]),
 
-  case pivot_client:do(assignments, assign, PReq) of
+  case pivot:do(assignments, assign, PReq) of
     {ok, Assignments, Token, TTL} ->
       respond(Assignments, Token, TTL, RequestID, Req);
     {error, notfound} ->
       respond(3600, RequestID, Req);
     Error ->
-      cowboy_req:reply(500, [
-        {<<"x-request-id">>, RequestID}
-      ], io_lib:format("~p~n", [Error]), Req)
+      ?ERROR(io_lib:format("~p~n", [Error]), 500, Req)
   end.
 
 respond(TLL, RequestID, Req) ->

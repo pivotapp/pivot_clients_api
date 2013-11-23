@@ -9,8 +9,8 @@
 
 start() ->
   ok = inets:start(),
-  ok = riakou:start(),
-  application:start(crypto),
+  ok = application:start(crypto),
+  ok = application:start(pivot),
   ok = application:start(ranch),
   ok = application:start(cowboy),
   ok = application:start(pivot_clients_api).
